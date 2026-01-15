@@ -11,6 +11,7 @@ const navItems = [
   { name: '职业生涯', href: '#career' },
   { name: '精彩瞬间', href: '#highlights' },
   { name: '数据统计', href: '#statistics' },
+  { name: '游戏', href: '/game' },
 ]
 
 export default function Navigation() {
