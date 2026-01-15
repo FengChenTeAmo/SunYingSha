@@ -1,0 +1,58 @@
+import { MediaItem } from '@/types'
+
+export const mediaItems: MediaItem[] = [
+  {
+    id: '1',
+    type: 'image',
+    url: '/images/highlights/highlight1.jpg',
+    thumbnail: '/images/highlights/thumb1.jpg',
+    title: '比赛精彩瞬间',
+    description: '世界锦标赛夺冠瞬间',
+    category: '比赛',
+  },
+  {
+    id: '2',
+    type: 'image',
+    url: '/images/highlights/highlight2.jpg',
+    thumbnail: '/images/highlights/thumb2.jpg',
+    title: '训练日常',
+    description: '日常训练中的专注',
+    category: '照片',
+  },
+  {
+    id: '3',
+    type: 'video',
+    url: '/videos/highlights/video1.mp4',
+    thumbnail: '/images/highlights/video1-thumb.jpg',
+    title: '精彩回放',
+    description: '经典比赛回放',
+    category: '视频',
+  },
+  {
+    id: '4',
+    type: 'image',
+    url: '/images/highlights/highlight3.jpg',
+    thumbnail: '/images/highlights/thumb3.jpg',
+    title: '颁奖时刻',
+    description: '站在领奖台上的荣耀',
+    category: '比赛',
+  },
+  {
+    id: '5',
+    type: 'image',
+    url: '/images/highlights/highlight4.jpg',
+    thumbnail: '/images/highlights/thumb4.jpg',
+    title: '赛场风采',
+    description: '比赛中的精彩表现',
+    category: '照片',
+  },
+  {
+    id: '6',
+    type: 'video',
+    url: '/videos/highlights/video2.mp4',
+    thumbnail: '/images/highlights/video2-thumb.jpg',
+    title: '训练视频',
+    description: '日常训练片段',
+    category: '视频',
+  },
+]
