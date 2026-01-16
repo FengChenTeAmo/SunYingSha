@@ -42,3 +42,6 @@ export interface NewsItem {
   link?: string
   category?: string
 }
+
+// 导出问答游戏相关类型
+export * from './quiz'

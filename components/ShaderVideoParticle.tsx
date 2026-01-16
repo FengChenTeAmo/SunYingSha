@@ -9,6 +9,7 @@ interface ShaderVideoParticleProps {
   height?: number
   particleSize?: number
   className?: string
+  onVideoEnd?: () => void
 }
 
 // Vertex Shader（简化版，不使用纹理）
@@ -51,12 +52,28 @@ void main() {
 }
 `
 
+/**
+ * GPU Shader 视频粒子特效组件
+ * 使用 Three.js 和 MediaPipe 实现基于运动检测的视频粒子效果
+ * 
+ * @param videoSrc - 视频源路径（相对于 public 目录或完整 URL），例如 "/videos/sample1.mp4"
+ * @param width - 视频原始宽度（像素），用于创建视频 Canvas 和采样网格，默认 320
+ *               这个值应该与视频的实际宽度匹配，用于正确采样视频帧
+ * @param height - 视频原始高度（像素），用于创建视频 Canvas 和采样网格，默认 180
+ *                这个值应该与视频的实际高度匹配，用于正确采样视频帧
+ * @param particleSize - 粒子大小（像素），控制粒子在屏幕上的显示尺寸和密度，默认 2
+ *                     值越大粒子越稀疏（粒子数量越少），值越小粒子越密集（粒子数量越多）
+ *                     影响性能：值越小，粒子数量越多，性能消耗越大
+ * @param className - 额外的 CSS 类名，用于自定义容器样式，默认空字符串
+ * @param onVideoEnd - 视频播放结束时的回调函数，可选，用于处理视频播放完成事件
+ */
 export default function ShaderVideoParticle({
   videoSrc,
   width = 320,
   height = 180,
   particleSize = 2,
-  className = ''
+  className = '',
+  onVideoEnd
 }: ShaderVideoParticleProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -74,6 +91,7 @@ export default function ShaderVideoParticle({
   const colorsRef = useRef<Float32Array | null>(null)
   const positionsRef = useRef<Float32Array | null>(null)
   const isPersonRef = useRef<Float32Array | null>(null)
+  const videoCoordsRef = useRef<Float32Array | null>(null)
   const segmentationRef = useRef<any>(null)
   const personMaskRef = useRef<HTMLCanvasElement | null>(null)
   const lastSegTimeRef = useRef<number>(0)
@@ -83,6 +101,7 @@ export default function ShaderVideoParticle({
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [hasMask, setHasMask] = useState(false)
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 })
 
   useEffect(() => {
     if (!containerRef.current || !videoRef.current) return
@@ -123,9 +142,34 @@ export default function ShaderVideoParticle({
     const scene = new THREE.Scene()
     sceneRef.current = scene
 
+    // 计算Canvas尺寸：宽度为屏幕的50%，高度适配视频，整体缩小到80%
+    // 确保保持视频的原始宽高比
+    const scale = 0.8
+    const videoAspect = width / height
+    const screenAspect = window.innerWidth / window.innerHeight
+    
+    let canvasWidth: number, canvasHeight: number
+    
+    // 根据屏幕和视频的宽高比，选择合适的缩放方式，确保视频比例不变形
+    if (screenAspect > videoAspect) {
+      // 屏幕更宽，以高度为准，保持视频比例
+      canvasHeight = Math.floor(window.innerHeight * 0.5 * scale)
+      canvasWidth = Math.floor(canvasHeight * videoAspect)
+    } else {
+      // 屏幕更高，以宽度为准，保持视频比例
+      canvasWidth = Math.floor(window.innerWidth * 0.5 * scale)
+      canvasHeight = Math.floor(canvasWidth / videoAspect)
+    }
+    
+    // 确保尺寸是整数
+    canvasWidth = Math.floor(canvasWidth)
+    canvasHeight = Math.floor(canvasHeight)
+    
+    setCanvasSize({ width: canvasWidth, height: canvasHeight })
+    
     const camera = new THREE.PerspectiveCamera(
       45,
-      window.innerWidth / window.innerHeight,
+      canvasWidth / canvasHeight,
       1,
       1000
     )
@@ -133,7 +177,7 @@ export default function ShaderVideoParticle({
     cameraRef.current = camera
 
     const renderer = new THREE.WebGLRenderer({ antialias: true })
-    renderer.setSize(window.innerWidth, window.innerHeight)
+    renderer.setSize(canvasWidth, canvasHeight)
     renderer.setClearColor(0x000000, 1)
     containerRef.current.appendChild(renderer.domElement)
     rendererRef.current = renderer
@@ -162,22 +206,35 @@ export default function ShaderVideoParticle({
     maskCanvasRef.current = maskCanvas
     maskCtxRef.current = maskCtx
 
-    // 创建粒子系统（一次性创建，不再更新位置）
-    const count = width * height
-    console.log(`创建 GPU Shader 粒子系统: ${count} 个粒子 (${width}x${height})`)
+    // 创建粒子系统 - 根据Canvas尺寸分布粒子，但采样视频时使用视频尺寸
+    // Canvas尺寸已计算：宽度为屏幕50%的80%，高度适配视频
+    const gridWidth = Math.floor(canvasWidth / particleSize)
+    const gridHeight = Math.floor(canvasHeight / particleSize)
+    
+    const count = gridWidth * gridHeight
+    console.log(`创建 GPU Shader 粒子系统: ${count} 个粒子 (${gridWidth}x${gridHeight})，Canvas: ${canvasWidth}x${canvasHeight}`)
     const geometry = new THREE.BufferGeometry()
     geometryRef.current = geometry
 
     const positions = new Float32Array(count * 3)
     const colors = new Float32Array(count * 3)
     const isPerson = new Float32Array(count)
+    
+    // 存储每个粒子对应的视频像素坐标（用于采样）
+    const videoCoords = new Float32Array(count * 2)
+    videoCoordsRef.current = videoCoords
 
     let i = 0
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        positions[i * 3] = x - width / 2
-        positions[i * 3 + 1] = height / 2 - y
+    for (let y = 0; y < gridHeight; y++) {
+      for (let x = 0; x < gridWidth; x++) {
+        // 粒子在Canvas空间的位置（填满Canvas）
+        positions[i * 3] = (x / gridWidth - 0.5) * canvasWidth
+        positions[i * 3 + 1] = (0.5 - y / gridHeight) * canvasHeight
         positions[i * 3 + 2] = 0
+        
+        // 对应的视频像素坐标（用于采样视频数据）
+        videoCoords[i * 2] = (x / gridWidth) * width
+        videoCoords[i * 2 + 1] = (y / gridHeight) * height
 
         // 初始化颜色为白色
         colors[i * 3] = 1
@@ -198,6 +255,8 @@ export default function ShaderVideoParticle({
     colorsRef.current = colors
     positionsRef.current = positions
     isPersonRef.current = isPerson
+    // 存储网格尺寸和粒子数量供后续使用
+    geometryRef.current.userData = { gridWidth, gridHeight, count }
 
     // 创建 ShaderMaterial（不使用纹理）
     // 注意：Three.js 在使用 vertexColors: true 时会自动注入 color attribute
@@ -283,7 +342,6 @@ export default function ShaderVideoParticle({
       const camera = cameraRef.current
       const renderer = rendererRef.current
       const scene = sceneRef.current
-      const video = videoRef.current
       const geometry = geometryRef.current
 
       // 始终渲染场景
@@ -296,6 +354,8 @@ export default function ShaderVideoParticle({
         // 更新粒子数据（CPU 端处理，不使用纹理）
         if (video && video.readyState >= 2 && videoCtx && geometry && colorsRef.current && positionsRef.current && isPersonRef.current) {
           try {
+            // 清除之前的Canvas内容
+            videoCtx.clearRect(0, 0, width, height)
             // 绘制视频帧
             videoCtx.drawImage(video, 0, 0, width, height)
             const frame = videoCtx.getImageData(0, 0, width, height).data
@@ -339,44 +399,55 @@ export default function ShaderVideoParticle({
             const colors = colorsRef.current
             const positions = positionsRef.current
             const isPerson = isPersonRef.current
+            const videoCoords = videoCoordsRef.current
 
-            let i = 0
-            for (let y = 0; y < height; y++) {
-              for (let x = 0; x < width; x++) {
-                const index = (y * width + x) * 4
+            if (!videoCoords || !geometry) return
+            
+            // 从 geometry 的 userData 获取粒子数量
+            const particleCount = geometry.userData?.count || 0
+            if (particleCount === 0) return
 
-                const r = frame[index] / 255
-                const g = frame[index + 1] / 255
-                const b = frame[index + 2] / 255
+            // 遍历所有粒子（基于Canvas尺寸的网格）
+            for (let i = 0; i < particleCount; i++) {
+              // 从 videoCoords 获取对应的视频像素坐标
+              const videoX = Math.floor(videoCoords[i * 2])
+              const videoY = Math.floor(videoCoords[i * 2 + 1])
+              
+              // 确保坐标在视频范围内
+              const clampedX = Math.max(0, Math.min(videoX, width - 1))
+              const clampedY = Math.max(0, Math.min(videoY, height - 1))
+              
+              const videoIndex = (clampedY * width + clampedX) * 4
 
-                // 判断是否为人像区域
-                const isPersonValue = maskData && maskData[index] > 128 ? 1.0 : 0.0
-                isPerson[i] = isPersonValue
+              const r = frame[videoIndex] / 255
+              const g = frame[videoIndex + 1] / 255
+              const b = frame[videoIndex + 2] / 255
 
-                // 获取运动强度（只有 0 或 1，0 表示静止，1 表示运动）
-                const motion = motionData ? motionData[y * width + x] : 0
+              // 判断是否为人像区域
+              const isPersonValue = maskData && maskData[videoIndex] > 128 ? 1.0 : 0.0
+              isPerson[i] = isPersonValue
 
-                // 更新颜色（运动点标记为红色，静止点降低为黑色）
-                if (motion === 1.0) {
-                  // 运动点：标记为红色
-                  colors[i * 3] = 1.0      // R = 红色
-                  colors[i * 3 + 1] = 0.0  // G = 0
-                  colors[i * 3 + 2] = 0.0  // B = 0
-                } else {
-                  // 静止点：降低为黑色
-                  colors[i * 3] = 0
-                  colors[i * 3 + 1] = 0
-                  colors[i * 3 + 2] = 0
-                }
+              // 获取运动强度（只有 0 或 1，0 表示静止，1 表示运动）
+              const motion = motionData ? motionData[clampedY * width + clampedX] : 0
 
-                // 更新深度（简化，不使用亮度计算，避免规律性变化）
-                if (isPersonValue > 0.5) {
-                  positions[i * 3 + 2] = 100  // 人物固定深度
-                } else {
-                  positions[i * 3 + 2] = -150  // 背景固定深度
-                }
+              // 更新颜色（运动点标记为红色，静止点降低为黑色）
+              if (motion === 1.0) {
+                // 运动点：标记为红色
+                colors[i * 3] = 1.0      // R = 红色
+                colors[i * 3 + 1] = 0.0  // G = 0
+                colors[i * 3 + 2] = 0.0  // B = 0
+              } else {
+                // 静止点：降低为黑色
+                colors[i * 3] = 0
+                colors[i * 3 + 1] = 0
+                colors[i * 3 + 2] = 0
+              }
 
-                i++
+              // 更新深度（简化，不使用亮度计算，避免规律性变化）
+              if (isPersonValue > 0.5) {
+                positions[i * 3 + 2] = 100  // 人物固定深度
+              } else {
+                positions[i * 3 + 2] = -150  // 背景固定深度
               }
             }
 
@@ -417,9 +488,33 @@ export default function ShaderVideoParticle({
       const camera = cameraRef.current
       const renderer = rendererRef.current
       if (!camera || !renderer) return
-      camera.aspect = window.innerWidth / window.innerHeight
+      
+      // 重新计算Canvas尺寸，保持视频原始比例
+      const scale = 0.8
+      const videoAspect = width / height
+      const screenAspect = window.innerWidth / window.innerHeight
+      
+      let newCanvasWidth: number, newCanvasHeight: number
+      
+      // 根据屏幕和视频的宽高比，选择合适的缩放方式，确保视频比例不变形
+      if (screenAspect > videoAspect) {
+        // 屏幕更宽，以高度为准，保持视频比例
+        newCanvasHeight = Math.floor(window.innerHeight * 0.5 * scale)
+        newCanvasWidth = Math.floor(newCanvasHeight * videoAspect)
+      } else {
+        // 屏幕更高，以宽度为准，保持视频比例
+        newCanvasWidth = Math.floor(window.innerWidth * 0.5 * scale)
+        newCanvasHeight = Math.floor(newCanvasWidth / videoAspect)
+      }
+      
+      // 确保尺寸是整数
+      newCanvasWidth = Math.floor(newCanvasWidth)
+      newCanvasHeight = Math.floor(newCanvasHeight)
+      
+      setCanvasSize({ width: newCanvasWidth, height: newCanvasHeight })
+      camera.aspect = newCanvasWidth / newCanvasHeight
       camera.updateProjectionMatrix()
-      renderer.setSize(window.innerWidth, window.innerHeight)
+      renderer.setSize(newCanvasWidth, newCanvasHeight)
     }
 
     window.addEventListener('resize', handleResize)
@@ -431,17 +526,38 @@ export default function ShaderVideoParticle({
         video.removeEventListener('loadeddata', handleLoadedData)
         video.removeEventListener('canplay', handleCanPlay)
         video.removeEventListener('error', handleError)
+        video.pause()
+        video.src = ''
+        video.load()
       }
       window.removeEventListener('resize', handleResize)
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
       }
-      if (renderer.domElement.parentNode) {
+      
+      // 清除Canvas上下文
+      const videoCtx = videoCtxRef.current
+      const maskCtx = maskCtxRef.current
+      if (videoCtx) {
+        videoCtx.clearRect(0, 0, width, height)
+      }
+      if (maskCtx) {
+        maskCtx.clearRect(0, 0, width, height)
+      }
+      
+      // 清除渲染器
+      if (renderer && renderer.domElement.parentNode) {
         renderer.domElement.parentNode.removeChild(renderer.domElement)
       }
-      renderer.dispose()
-      geometry.dispose()
-      material.dispose()
+      if (renderer) {
+        renderer.dispose()
+      }
+      if (geometry) {
+        geometry.dispose()
+      }
+      if (material) {
+        material.dispose()
+      }
       if (segmentationRef.current) {
         try {
           segmentationRef.current.close()
@@ -449,28 +565,68 @@ export default function ShaderVideoParticle({
           console.warn('关闭分割器失败:', err)
         }
       }
+      
+      // 重置引用
+      previousFrameRef.current = null
+      personMaskRef.current = null
     }
   }, [width, height, particleSize])
 
   // 处理视频源变化
   useEffect(() => {
-    if (videoRef.current && videoRef.current.src !== videoSrc) {
+    const video = videoRef.current
+    if (video && video.src !== videoSrc) {
+      // 停止并重置当前视频
+      video.pause()
+      video.currentTime = 0
+      
+      // 清除Canvas上下文
+      const videoCtx = videoCtxRef.current
+      const maskCtx = maskCtxRef.current
+      if (videoCtx) {
+        videoCtx.clearRect(0, 0, width, height)
+      }
+      if (maskCtx) {
+        maskCtx.clearRect(0, 0, width, height)
+      }
+      
+      // 重置状态
+      previousFrameRef.current = null
+      personMaskRef.current = null
+      
+      // 加载新视频
       setIsLoading(true)
       setError(null)
       setIsPlaying(false)
-      videoRef.current.src = videoSrc
-      videoRef.current.load()
+      video.src = videoSrc
+      video.load()
     }
-  }, [videoSrc])
+  }, [videoSrc, width, height])
+
+  // 自动播放视频
+  useEffect(() => {
+    const video = videoRef.current
+    if (video && !isPlaying && !isLoading && !error) {
+      video.play().catch((err) => {
+        console.warn('自动播放失败，需要用户交互:', err)
+        // 不设置错误，允许用户手动播放
+      })
+    }
+  }, [isLoading, error, isPlaying])
 
   // 播放控制
   const togglePlay = () => {
     if (videoRef.current) {
+      const video = videoRef.current
       if (isPlaying) {
-        videoRef.current.pause()
+        video.pause()
         setIsPlaying(false)
       } else {
-        videoRef.current.play().catch((err) => {
+        // 如果视频已结束，重置到开始位置
+        if (video.ended) {
+          video.currentTime = 0
+        }
+        video.play().catch((err) => {
           console.error('播放失败:', err)
           setError('视频播放失败，可能需要用户交互')
           setIsPlaying(false)
@@ -487,7 +643,16 @@ export default function ShaderVideoParticle({
 
     const handlePlay = () => setIsPlaying(true)
     const handlePause = () => setIsPlaying(false)
-    const handleEnded = () => setIsPlaying(false)
+    const handleEnded = () => {
+      setIsPlaying(false)
+      // 确保视频暂停
+      if (video) {
+        video.pause()
+      }
+      if (onVideoEnd) {
+        onVideoEnd()
+      }
+    }
 
     video.addEventListener('play', handlePlay)
     video.addEventListener('pause', handlePause)
@@ -498,19 +663,26 @@ export default function ShaderVideoParticle({
       video.removeEventListener('pause', handlePause)
       video.removeEventListener('ended', handleEnded)
     }
-  }, [])
+  }, [onVideoEnd])
 
   return (
-    <div className={`relative w-full h-screen ${className}`}>
+    <div 
+      className={`relative ${className}`}
+      style={{ 
+        width: `${canvasSize.width}px`, 
+        height: `${canvasSize.height}px`,
+        margin: '0 auto'
+      }}
+    >
       <div ref={containerRef} className="absolute inset-0" />
       <video
         ref={videoRef}
         src={videoSrc}
         className="hidden"
-        loop
         muted
         playsInline
         preload="auto"
+        autoPlay
       />
 
       {isLoading && (
@@ -525,20 +697,6 @@ export default function ShaderVideoParticle({
           <div className="text-red-400 text-center px-4">
             <p className="text-lg mb-2">错误</p>
             <p className="text-sm">{error}</p>
-          </div>
-        </div>
-      )}
-
-      {!isLoading && !error && (
-        <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-10 flex flex-col items-center gap-2">
-          <button
-            onClick={togglePlay}
-            className="px-6 py-2 bg-white/20 backdrop-blur-sm text-white rounded-lg hover:bg-white/30 transition-colors"
-          >
-            {isPlaying ? '暂停' : '播放'}
-          </button>
-          <div className="text-white/60 text-xs text-center">
-            {hasMask ? '✓ Shader + MediaPipe 已就绪（无纹理模式）' : '⏳ 等待 MediaPipe 初始化...'}
           </div>
         </div>
       )}
