@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
+import { getAssetPath } from '@/utils/path'
 
 interface ShaderVideoParticleProps {
   videoSrc: string
@@ -575,7 +576,8 @@ export default function ShaderVideoParticle({
   // 处理视频源变化
   useEffect(() => {
     const video = videoRef.current
-    if (video && video.src !== videoSrc) {
+    const assetPath = getAssetPath(videoSrc)
+    if (video && video.src !== assetPath) {
       // 停止并重置当前视频
       video.pause()
       video.currentTime = 0
@@ -598,7 +600,7 @@ export default function ShaderVideoParticle({
       setIsLoading(true)
       setError(null)
       setIsPlaying(false)
-      video.src = videoSrc
+      video.src = assetPath
       video.load()
     }
   }, [videoSrc, width, height])
@@ -677,7 +679,7 @@ export default function ShaderVideoParticle({
       <div ref={containerRef} className="absolute inset-0" />
       <video
         ref={videoRef}
-        src={videoSrc}
+        src={getAssetPath(videoSrc)}
         className="hidden"
         muted
         playsInline

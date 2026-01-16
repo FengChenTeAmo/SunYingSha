@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FiMenu, FiX } from 'react-icons/fi'
 
@@ -17,6 +18,7 @@ const navItems = [
 export default function Navigation() {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const router = useRouter()
 
   useEffect(() => {
     const handleScroll = () => {
@@ -35,7 +37,8 @@ export default function Navigation() {
         element.scrollIntoView({ behavior: 'smooth' })
       }
     } else if (href.startsWith('/')) {
-      window.location.href = href
+      // 使用 Next.js router 处理路由，会自动处理 basePath
+      router.push(href)
     }
   }
 

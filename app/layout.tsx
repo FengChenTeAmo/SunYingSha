@@ -36,8 +36,19 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
+  // 获取 basePath（与 next.config.js 保持一致）
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH || 
+    (process.env.NODE_ENV === 'production' ? '/SunYingSha' : '')
+  
   return (
     <html lang="zh-CN" className="scroll-smooth">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.__NEXT_PUBLIC_BASE_PATH__ = ${JSON.stringify(basePath)};`,
+          }}
+        />
+      </head>
       <body className="font-sans antialiased">
         <Navigation />
         <main className="min-h-screen">

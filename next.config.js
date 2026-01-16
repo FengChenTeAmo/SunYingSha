@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
-const isProd = process.env.NODE_ENV === 'production'
 // GitHub Pages 使用仓库名作为路径，例如：/SunYingSha/
+// 注意：在生产环境构建时，NODE_ENV 会被设置为 'production'
+const isProd = process.env.NODE_ENV === 'production'
 const basePath = process.env.NEXT_PUBLIC_BASE_PATH || (isProd ? '/SunYingSha' : '')
 
 const nextConfig = {
