@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "clean": "powershell -ExecutionPolicy Bypass -File ./clean.ps1",
-    "clean:cache": "Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue && Remove-Item -Recurse -Force node_modules/.cache -ErrorAction SilentlyContinue"
+    "clean:cache": "Remove-Item -Recurse -Force .next -ErrorAction SilentlyContinue && Remove-Item -Recurse -Force node_modules/.cache -ErrorAction SilentlyContinue",
+    "export": "next build"
   },
   "dependencies": {
     "@mediapipe/selfie_segmentation": "^0.1.1675465747",

@@ -19,7 +19,7 @@ export default function SummaryModal({
 }: SummaryModalProps) {
   if (!isVisible) return null
 
-  const correctRate = totalQuestions > 0 ? (correctAnswers / totalQuestions * 100).toFixed(1) : 0
+  const correctRate = totalQuestions > 0 ? (correctAnswers / totalQuestions * 100).toFixed(1) : '0'
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
