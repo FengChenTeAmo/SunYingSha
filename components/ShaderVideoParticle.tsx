@@ -29,7 +29,7 @@ void main() {
   gl_Position = projectionMatrix * mvPosition;
 
   // 统一粒子尺寸，避免视觉上的颜色变化
-  gl_PointSize = 3.0;
+  gl_PointSize = 1.5;
 }
 `
 
@@ -363,6 +363,7 @@ export default function ShaderVideoParticle({
 
             // 计算运动强度（与上一帧的差异）
             let motionData: Float32Array | null = null
+            let hasMotion = false  // 标记是否有运动
             if (previousFrameRef.current) {
               motionData = new Float32Array(width * height)
               for (let y = 0; y < height; y++) {
@@ -380,8 +381,21 @@ export default function ShaderVideoParticle({
                   const motionThreshold = 0.1  // 运动阈值
                   const motion = motionValue > motionThreshold ? 1.0 : 0.0
                   motionData[y * width + x] = motion
+                  
+                  // 如果检测到运动，标记为有运动
+                  if (motion === 1.0) {
+                    hasMotion = true
+                  }
                 }
               }
+            }
+            
+            // 如果全为静止（没有运动点），跳过这一帧的粒子数据更新
+            // 保持上一帧的状态，减少闪屏
+            if (motionData && !hasMotion) {
+              // 不更新粒子数据，直接返回
+              // 渲染会在 try-catch 块外统一执行
+              return  // 跳过粒子数据更新，保持上一帧状态
             }
             
             // 保存当前帧作为下一帧的参考
